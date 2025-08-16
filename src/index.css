@@ -1,0 +1,46 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Poppins:wght@300;400;500;600;700;800&family=League+Spartan:wght@300;400;500;600;700;800;900&display=swap');
+@import "tailwindcss";
+
+@layer base {
+  html {
+    font-family: 'Inter', sans-serif;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Poppins', sans-serif;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-orange-600 hover:bg-orange-700 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl;
+  }
+  
+  .btn-secondary {
+    @apply bg-sky-600 hover:bg-sky-700 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl;
+  }
+  
+  .card {
+    @apply bg-white rounded-xl shadow-lg p-4 sm:p-6 border border-gray-100;
+  }
+  
+  .input-field {
+    @apply w-full px-3 sm:px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all duration-300;
+  }
+  
+  .step-indicator {
+    @apply flex items-center justify-center w-10 h-10 rounded-full border-2 font-semibold transition-all duration-300;
+  }
+  
+  .step-active {
+    @apply bg-orange-600 border-orange-600 text-white;
+  }
+  
+  .step-completed {
+    @apply bg-green-500 border-green-500 text-white;
+  }
+  
+  .step-pending {
+    @apply bg-gray-200 border-gray-300 text-gray-500;
+  }
+}
