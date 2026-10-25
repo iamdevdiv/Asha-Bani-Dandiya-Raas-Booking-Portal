@@ -1,4 +1,5 @@
 import { createContext, useContext, useReducer } from 'react';
+import { getCurrentLadiesPrice, getChildPrice } from '../utils/pricing';
 
 const BookingContext = createContext();
 
@@ -6,7 +7,6 @@ const initialState = {
   currentStep: 1,
   tickets: [],
   customerDetails: [],
-  paymentDetails: null,
   totalAmount: 0,
   bookingId: null,
 };
@@ -44,8 +44,7 @@ const bookingReducer = (state, action) => {
     case 'SET_CUSTOMER_DETAILS':
       return { ...state, customerDetails: action.payload };
     
-    case 'SET_PAYMENT_DETAILS':
-      return { ...state, paymentDetails: action.payload };
+
     
     case 'SET_BOOKING_ID':
       return { ...state, bookingId: action.payload };
@@ -60,8 +59,8 @@ const bookingReducer = (state, action) => {
 
 const calculateTotal = (tickets) => {
   return tickets.reduce((total, ticket) => {
-    let ticketPrice = ticket.type === 'single' ? 399 : 799;
-    let childrenPrice = ticket.children * 199;
+    let ticketPrice = getCurrentLadiesPrice(); // Ladies pass pricing
+    let childrenPrice = ticket.children * getChildPrice();
     return total + ticketPrice + childrenPrice;
   }, 0);
 };
@@ -77,7 +76,6 @@ export const BookingProvider = ({ children }) => {
     removeTicket: (index) => dispatch({ type: 'REMOVE_TICKET', payload: index }),
     setStep: (step) => dispatch({ type: 'SET_STEP', payload: step }),
     setCustomerDetails: (details) => dispatch({ type: 'SET_CUSTOMER_DETAILS', payload: details }),
-    setPaymentDetails: (details) => dispatch({ type: 'SET_PAYMENT_DETAILS', payload: details }),
     setBookingId: (id) => dispatch({ type: 'SET_BOOKING_ID', payload: id }),
     resetBooking: () => dispatch({ type: 'RESET_BOOKING' }),
   };

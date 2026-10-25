@@ -2,52 +2,78 @@ import { useState, useEffect } from 'react';
 import { useBooking } from '../context/BookingContext';
 
 const CustomerDetails = () => {
-  const { tickets, customerDetails, setCustomerDetails, setStep } = useBooking();
+  const { setStep } = useBooking();
   const [formData, setFormData] = useState({});
   const [errors, setErrors] = useState({});
   const [showError, setShowError] = useState(false);
+  const [bookingSelection, setBookingSelection] = useState(null);
 
-  // Initialize form data for all tickets (adults and children)
+  // Get booking selection from localStorage
+  useEffect(() => {
+    const selection = localStorage.getItem('bookingSelection');
+    if (selection) {
+      setBookingSelection(JSON.parse(selection));
+    }
+  }, []);
+
+  // Initialize form data for the selected ticket
   const initializeFormData = () => {
+    if (!bookingSelection) return {};
+    
     const data = {};
-    tickets.forEach((ticket, ticketIndex) => {
-      const totalAdults = ticket.type === 'single' ? 1 : 2;
-      
-      // Add adult details
-      for (let i = 0; i < totalAdults; i++) {
-        const key = `ticket_${ticketIndex}_adult_${i}`;
-        data[key] = {
-          firstName: '',
-          lastName: '',
-          mobile: '',
-          email: '',
-          address: ''
-        };
-      }
-      
-      // Add children names
-      for (let i = 0; i < ticket.children; i++) {
-        const key = `ticket_${ticketIndex}_child_${i}`;
-        data[key] = {
-          firstName: '',
-          lastName: ''
-        };
-      }
-    });
+    const totalAdults = 1; // Ladies pass is always 1 adult
+    
+    // Add adult details
+    for (let i = 0; i < totalAdults; i++) {
+      const key = `ticket_0_adult_${i}`;
+      data[key] = {
+        firstName: '',
+        lastName: '',
+        mobile: '',
+        address: ''
+      };
+    }
+    
+    // Add children names (only valid children based on age)
+    const validChildrenCount = bookingSelection.childrenCount || 0;
+    for (let i = 0; i < validChildrenCount; i++) {
+      const key = `ticket_0_child_${i}`;
+      data[key] = {
+        firstName: '',
+        lastName: ''
+      };
+    }
     return data;
   };
 
-  // Initialize form data with existing customer details or empty form
+  // Initialize form data - only load existing data if navigating from step 3
   useEffect(() => {
-    if (Object.keys(formData).length === 0) {
-      // If we have existing customer details, use them; otherwise initialize empty form
-      if (customerDetails && Object.keys(customerDetails).length > 0) {
-        setFormData(customerDetails);
+    if (Object.keys(formData).length === 0 && bookingSelection) {
+      // Check if we're coming from step 3 by checking sessionStorage
+      const fromStep3 = sessionStorage.getItem('fromStep3');
+      
+      if (fromStep3 === 'true') {
+        // We're coming from step 3, load existing data
+        const existingDetails = localStorage.getItem('customerDetails');
+        if (existingDetails) {
+          try {
+            const parsedDetails = JSON.parse(existingDetails);
+            setFormData(parsedDetails);
+          } catch (error) {
+            console.error('Error parsing existing customer details:', error);
+            setFormData(initializeFormData());
+          }
+        } else {
+          setFormData(initializeFormData());
+        }
+        // Clear the flag
+        sessionStorage.removeItem('fromStep3');
       } else {
+        // Fresh page load or coming from step 1, start with empty form
         setFormData(initializeFormData());
       }
     }
-  }, [tickets, customerDetails]);
+  }, [bookingSelection]);
 
   const handleInputChange = (key, field, value) => {
     setFormData(prev => ({
@@ -59,6 +85,12 @@ const CustomerDetails = () => {
     }));
   };
 
+  const handleBack = () => {
+    // Save current form data before going back
+    localStorage.setItem('customerDetails', JSON.stringify(formData));
+    setStep(1);
+  };
+
   const validateForm = () => {
     const newErrors = {};
     let isValid = true;
@@ -68,7 +100,7 @@ const CustomerDetails = () => {
       const fieldErrors = {};
 
       if (key.includes('adult')) {
-        // Adults need all fields
+        // Adults need all fields except email
         if (!member.firstName?.trim()) {
           fieldErrors.firstName = 'First name is required';
           isValid = false;
@@ -84,13 +116,7 @@ const CustomerDetails = () => {
           fieldErrors.mobile = 'Please enter a valid 10-digit mobile number';
           isValid = false;
         }
-        if (!member.email?.trim()) {
-          fieldErrors.email = 'Email is required';
-          isValid = false;
-        } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(member.email.trim())) {
-          fieldErrors.email = 'Please enter a valid email address';
-          isValid = false;
-        }
+
         if (!member.address?.trim()) {
           fieldErrors.address = 'Address is required';
           isValid = false;
@@ -120,242 +146,210 @@ const CustomerDetails = () => {
     if (validateForm()) {
       setShowError(false);
       setErrors({});
-      setCustomerDetails(formData);
+      
+      // Store customer details in localStorage for the next step
+      localStorage.setItem('customerDetails', JSON.stringify(formData));
       setStep(3);
     } else {
       setShowError(true);
-      // Scroll to the first error
-      setTimeout(() => {
-        const firstErrorElement = document.querySelector('.error-field');
-        if (firstErrorElement) {
-          firstErrorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-      }, 100);
     }
   };
 
-  const handleBack = () => {
-    setStep(1);
+  const renderAdultFields = () => {
+    const adults = Object.keys(formData).filter(key => key.includes('adult'));
+    
+    return adults.map((key, index) => (
+      <div key={key} className="bg-gray-50 p-4 rounded-lg">
+        <h4 className="font-medium text-gray-700 mb-3">Ladies Details</h4>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">First Name *</label>
+            <input
+              type="text"
+              value={formData[key]?.firstName || ''}
+              onChange={(e) => handleInputChange(key, 'firstName', e.target.value)}
+              className={`input-field ${errors[key]?.firstName ? 'border-red-500' : ''}`}
+              placeholder="Enter first name"
+            />
+            {errors[key]?.firstName && (
+              <p className="text-red-500 text-xs mt-1">{errors[key].firstName}</p>
+            )}
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Last Name *</label>
+            <input
+              type="text"
+              value={formData[key]?.lastName || ''}
+              onChange={(e) => handleInputChange(key, 'lastName', e.target.value)}
+              className={`input-field ${errors[key]?.lastName ? 'border-red-500' : ''}`}
+              placeholder="Enter last name"
+            />
+            {errors[key]?.lastName && (
+              <p className="text-red-500 text-xs mt-1">{errors[key].lastName}</p>
+            )}
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Mobile Number *</label>
+            <input
+              type="tel"
+              value={formData[key]?.mobile || ''}
+              onChange={(e) => handleInputChange(key, 'mobile', e.target.value)}
+              className={`input-field ${errors[key]?.mobile ? 'border-red-500' : ''}`}
+              placeholder="Enter 10-digit mobile number"
+              maxLength="10"
+            />
+            {errors[key]?.mobile && (
+              <p className="text-red-500 text-xs mt-1">{errors[key].mobile}</p>
+            )}
+          </div>
+          
+
+          
+          <div className="sm:col-span-2">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Address *</label>
+            <textarea
+              value={formData[key]?.address || ''}
+              onChange={(e) => handleInputChange(key, 'address', e.target.value)}
+              className={`input-field ${errors[key]?.address ? 'border-red-500' : ''}`}
+              placeholder="Enter complete address"
+              rows="3"
+            />
+            {errors[key]?.address && (
+              <p className="text-red-500 text-xs mt-1">{errors[key].address}</p>
+            )}
+          </div>
+        </div>
+      </div>
+    ));
   };
 
-  const getAdultLabel = (ticketIndex, adultIndex, ticket) => {
-    return ticket.type === 'single' ? 'Adult' : `Adult ${adultIndex + 1}`;
+  const renderChildrenFields = () => {
+    const children = Object.keys(formData).filter(key => key.includes('child'));
+    
+    if (children.length === 0) return null;
+    
+    return (
+      <div className="space-y-4">
+        <h3 className="text-lg font-semibold text-gray-800 mb-4">Children Details (6-10 years)</h3>
+        {children.map((key, index) => (
+          <div key={key} className="bg-gray-50 p-4 rounded-lg">
+            <h4 className="font-medium text-gray-700 mb-3">Child {index + 1}</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">First Name *</label>
+                <input
+                  type="text"
+                  value={formData[key]?.firstName || ''}
+                  onChange={(e) => handleInputChange(key, 'firstName', e.target.value)}
+                  className={`input-field ${errors[key]?.firstName ? 'border-red-500' : ''}`}
+                  placeholder="Enter child's first name"
+                />
+                {errors[key]?.firstName && (
+                  <p className="text-red-500 text-xs mt-1">{errors[key].firstName}</p>
+                )}
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Last Name *</label>
+                <input
+                  type="text"
+                  value={formData[key]?.lastName || ''}
+                  onChange={(e) => handleInputChange(key, 'lastName', e.target.value)}
+                  className={`input-field ${errors[key]?.lastName ? 'border-red-500' : ''}`}
+                  placeholder="Enter child's last name"
+                />
+                {errors[key]?.lastName && (
+                  <p className="text-red-500 text-xs mt-1">{errors[key].lastName}</p>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
   };
+
+  if (!bookingSelection) {
+    return (
+      <div className="text-center py-8">
+        <p className="text-gray-600">Loading booking details...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
-      {/* Error Alert */}
-      {showError && (
-        <div className="card bg-red-50 border-red-200">
-          <div className="flex items-center space-x-3">
-            <div className="text-2xl">⚠️</div>
-            <div>
-              <h3 className="text-lg font-semibold text-red-900 mb-1">Please fix the following errors:</h3>
-              <p className="text-sm text-red-800">
-                All required fields must be filled correctly before proceeding.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
+      {/* Customer Details Form */}
       <div className="card">
         <h2 className="text-2xl font-bold mb-6">Customer Details</h2>
-        <p className="text-gray-600 mb-6">
-          Please provide details for all members. All fields marked with * are required.
-        </p>
-
-        {tickets.map((ticket, ticketIndex) => {
-          const totalAdults = ticket.type === 'single' ? 1 : 2;
-
-          return (
-            <div key={ticketIndex} className="mb-8 p-6 bg-gray-50 rounded-lg">
-              <h3 className="text-xl font-semibold mb-4">
-                {ticket.type === 'single' ? 'Single Pass' : 'Couple Pass'} #{ticketIndex + 1}
-                {ticket.children > 0 && ` (${ticket.children} child${ticket.children > 1 ? 'ren' : ''} included)`}
-              </h3>
-
-              <div className="space-y-6">
-                {/* Adult Details */}
-                {Array.from({ length: totalAdults }, (_, adultIndex) => {
-                  const key = `ticket_${ticketIndex}_adult_${adultIndex}`;
-                  const member = formData[key] || {};
-
-                  return (
-                    <div key={adultIndex} className="p-4 bg-white rounded-lg border">
-                      <h4 className="font-semibold mb-4 text-lg">
-                        {getAdultLabel(ticketIndex, adultIndex, ticket)}
-                      </h4>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
-                        <div className={errors[key]?.firstName ? 'error-field' : ''}>
-                          <label className="block text-sm font-semibold text-gray-700 mb-2">
-                            First Name *
-                          </label>
-                          <input
-                            type="text"
-                            value={member.firstName || ''}
-                            onChange={(e) => handleInputChange(key, 'firstName', e.target.value)}
-                            className={`input-field ${errors[key]?.firstName ? 'border-red-500 focus:ring-red-500' : ''}`}
-                            placeholder="Enter first name"
-                            required
-                          />
-                          {errors[key]?.firstName && (
-                            <p className="text-red-600 text-sm mt-1">{errors[key].firstName}</p>
-                          )}
-                        </div>
-
-                        <div className={errors[key]?.lastName ? 'error-field' : ''}>
-                          <label className="block text-sm font-semibold text-gray-700 mb-2">
-                            Last Name *
-                          </label>
-                          <input
-                            type="text"
-                            value={member.lastName || ''}
-                            onChange={(e) => handleInputChange(key, 'lastName', e.target.value)}
-                            className={`input-field ${errors[key]?.lastName ? 'border-red-500 focus:ring-red-500' : ''}`}
-                            placeholder="Enter last name"
-                            required
-                          />
-                          {errors[key]?.lastName && (
-                            <p className="text-red-600 text-sm mt-1">{errors[key].lastName}</p>
-                          )}
-                        </div>
-
-                        <div className={errors[key]?.mobile ? 'error-field' : ''}>
-                          <label className="block text-sm font-semibold text-gray-700 mb-2">
-                            Mobile Number *
-                          </label>
-                          <input
-                            type="tel"
-                            value={member.mobile || ''}
-                            onChange={(e) => handleInputChange(key, 'mobile', e.target.value)}
-                            className={`input-field ${errors[key]?.mobile ? 'border-red-500 focus:ring-red-500' : ''}`}
-                            placeholder="Enter mobile number"
-                            pattern="[0-9]{10}"
-                            required
-                          />
-                          {errors[key]?.mobile && (
-                            <p className="text-red-600 text-sm mt-1">{errors[key].mobile}</p>
-                          )}
-                        </div>
-
-                        <div className={errors[key]?.email ? 'error-field' : ''}>
-                          <label className="block text-sm font-semibold text-gray-700 mb-2">
-                            Email Address *
-                          </label>
-                          <input
-                            type="email"
-                            value={member.email || ''}
-                            onChange={(e) => handleInputChange(key, 'email', e.target.value)}
-                            className={`input-field ${errors[key]?.email ? 'border-red-500 focus:ring-red-500' : ''}`}
-                            placeholder="Enter email address"
-                            required
-                          />
-                          {errors[key]?.email && (
-                            <p className="text-red-600 text-sm mt-1">{errors[key].email}</p>
-                          )}
-                        </div>
-
-                        <div className={`md:col-span-2 ${errors[key]?.address ? 'error-field' : ''}`}>
-                          <label className="block text-sm font-semibold text-gray-700 mb-2">
-                            Address *
-                          </label>
-                          <textarea
-                            value={member.address || ''}
-                            onChange={(e) => handleInputChange(key, 'address', e.target.value)}
-                            className={`input-field ${errors[key]?.address ? 'border-red-500 focus:ring-red-500' : ''}`}
-                            rows="3"
-                            placeholder="Enter complete address"
-                            required
-                          />
-                          {errors[key]?.address && (
-                            <p className="text-red-600 text-sm mt-1">{errors[key].address}</p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {/* Children Names */}
-                {Array.from({ length: ticket.children }, (_, childIndex) => {
-                  const key = `ticket_${ticketIndex}_child_${childIndex}`;
-                  const child = formData[key] || {};
-
-                  return (
-                    <div key={childIndex} className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-                      <h4 className="font-semibold mb-4 text-lg text-blue-900">
-                        Child {childIndex + 1} <span className="text-sm text-blue-600">(0-10 years)</span>
-                      </h4>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
-                        <div className={errors[key]?.firstName ? 'error-field' : ''}>
-                          <label className="block text-sm font-semibold text-gray-700 mb-2">
-                            First Name *
-                          </label>
-                          <input
-                            type="text"
-                            value={child.firstName || ''}
-                            onChange={(e) => handleInputChange(key, 'firstName', e.target.value)}
-                            className={`input-field ${errors[key]?.firstName ? 'border-red-500 focus:ring-red-500' : ''}`}
-                            placeholder="Enter child's first name"
-                            required
-                          />
-                          {errors[key]?.firstName && (
-                            <p className="text-red-600 text-sm mt-1">{errors[key].firstName}</p>
-                          )}
-                        </div>
-
-                        <div className={errors[key]?.lastName ? 'error-field' : ''}>
-                          <label className="block text-sm font-semibold text-gray-700 mb-2">
-                            Last Name *
-                          </label>
-                          <input
-                            type="text"
-                            value={child.lastName || ''}
-                            onChange={(e) => handleInputChange(key, 'lastName', e.target.value)}
-                            className={`input-field ${errors[key]?.lastName ? 'border-red-500 focus:ring-red-500' : ''}`}
-                            placeholder="Enter child's last name"
-                            required
-                          />
-                          {errors[key]?.lastName && (
-                            <p className="text-red-600 text-sm mt-1">{errors[key].lastName}</p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
+        
+        {showError && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+            <div className="flex">
+              <div className="flex-shrink-0">
+                <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <div className="ml-3">
+                <p className="text-sm text-red-800">Please fill in all required fields correctly.</p>
               </div>
             </div>
-          );
-        })}
+          </div>
+        )}
+
+        <div className="space-y-6">
+          {/* Adults Section */}
+          <div>
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">Ladies Details</h3>
+            {renderAdultFields()}
+          </div>
+
+          {/* Children Section */}
+          {renderChildrenFields()}
+        </div>
+
+        <div className="flex flex-col sm:flex-row justify-between gap-3 mt-6">
+          <button
+            onClick={handleBack}
+            className="bg-gray-600 text-white px-6 py-2 rounded-md hover:bg-gray-700 transition-colors"
+          >
+            ← Back to Tickets
+          </button>
+          <button
+            onClick={handleNext}
+            className="bg-orange-600 text-white px-6 py-2 rounded-md hover:bg-orange-700 transition-colors"
+          >
+            Continue to Payment →
+          </button>
+        </div>
       </div>
 
-      {/* Navigation Buttons */}
-      <div className="flex flex-col sm:flex-row justify-between gap-3 sm:gap-0">
-        <button
-          onClick={handleBack}
-          className="btn-secondary w-full sm:w-auto order-2 sm:order-1"
-        >
-          ← Back to Tickets
-        </button>
-        <button
-          onClick={handleNext}
-          className="btn-primary w-full sm:w-auto order-1 sm:order-2"
-        >
-          Continue to Payment →
-        </button>
-      </div>
-
-      {/* Important Notes */}
-      <div className="card bg-blue-50 border-blue-200">
-        <h3 className="text-lg font-semibold text-blue-900 mb-3">Important Information</h3>
-        <ul className="text-sm text-blue-800 space-y-2">
-          <li>• All fields marked with * are required</li>
-          <li>• Email will be used to send digital passes</li>
-        </ul>
+      {/* Booking Summary */}
+      <div className="card bg-gradient-to-r from-orange-50 to-pink-50">
+        <h3 className="text-lg font-semibold mb-3">Booking Summary</h3>
+        <div className="space-y-2 text-sm">
+          <div className="flex justify-between">
+            <span>Ticket Type:</span>
+            <span className="font-medium">Ladies Pass</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Ladies:</span>
+            <span className="font-medium">1</span>
+          </div>
+          {bookingSelection.childrenCount > 0 && (
+            <div className="flex justify-between">
+              <span>Children (6-10 years):</span>
+              <span className="font-medium">{bookingSelection.childrenCount}</span>
+            </div>
+          )}
+          <div className="flex justify-between pt-2 border-t border-gray-300">
+            <span className="font-semibold">Total Amount:</span>
+            <span className="font-bold text-orange-600">₹{bookingSelection.totalAmount}</span>
+          </div>
+        </div>
       </div>
     </div>
   );

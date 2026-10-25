@@ -7,6 +7,7 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Dependencies and build outputs
 node_modules
 dist
 dist-ssr
@@ -23,6 +24,20 @@ dist-ssr
 *.sln
 *.sw?
 
+# Environment and sensitive keys
 .env
+.env.*
+!.env.example
+
+# Databases and data exports
 *.db
-eslist.config.js
+*.sqlite
+*.sqlite3
+*.xlsx
+*.csv
+
+# Sensitive static assets
+public/qr.jpeg
+
+# Local portfolio notes
+portfolio-entry.md

@@ -1,6 +1,4 @@
 import express from 'express';
-import Razorpay from 'razorpay';
-import crypto from 'crypto';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import nodemailer from 'nodemailer';
@@ -9,7 +7,7 @@ import QRCode from 'qrcode';
 import path from "path";
 import { fileURLToPath } from 'url';
 import { createCanvas, loadImage } from 'canvas';
-import { initDatabase, saveBooking, getAllBookings } from './database.js';
+import { initDatabase, saveBooking, getAllBookings, isTicketScanned, recordTicketScan, getTicketByQRData, updatePaymentStatus, saveDandiyaBooking, getAllDandiyaBookings, updateDandiyaPaymentStatus, getDandiyaBookingById, deleteDandiyaBooking } from './database.js';
 
 dotenv.config();
 
@@ -26,11 +24,36 @@ initDatabase().catch(console.error);
 app.use(cors());
 app.use(express.json());
 
-// Initialize Razorpay
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET
-});
+// Admin Authentication Middleware
+const requireAdminAuth = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({
+      success: false,
+      error: 'Authentication required'
+    });
+  }
+  
+  const token = authHeader.substring(7); // Remove 'Bearer ' prefix
+  
+  // For now, we'll use a simple token check
+  // In production, you might want to use JWT tokens
+  if (token === 'admin-authenticated') {
+    next();
+  } else {
+    res.status(401).json({
+      success: false,
+      error: 'Invalid authentication token'
+    });
+  }
+};
+
+// Payment configuration
+const PAYMENT_CONFIG = {
+  upiUrl: process.env.PAYMENT_UPI_URL,
+  whatsappNumber: process.env.SCREENSHOT_WHATSAPP_NUMBER
+};
 
 // Email Configuration with Mailgun Transport
 const auth = {
@@ -48,7 +71,18 @@ const generateEmailHTML = (bookingData) => {
   
   let ticketsHTML = '';
   tickets.forEach((ticket, index) => {
-    const totalAdults = ticket.type === 'single' ? 1 : 2;
+    let totalAdults;
+    if (ticket.type === 'ladies') {
+      totalAdults = 1;
+    } else if (ticket.type === 'single') {
+      totalAdults = 1;
+    } else if (ticket.type === 'stall') {
+      totalAdults = 2;
+    } else if (ticket.type === 'children_only') {
+      totalAdults = 0;
+    } else {
+      totalAdults = 1;
+    }
     const adultDetails = [];
     const childrenNames = [];
     
@@ -73,12 +107,17 @@ const generateEmailHTML = (bookingData) => {
     // Use the original ticket index if available, otherwise use the current index
     const displayTicketNumber = ticketIndex !== undefined ? ticketIndex + 1 : index + 1;
     
+    const ticketTypeDisplay = ticket.type === 'ladies' ? 'Ladies Pass' : 
+                             ticket.type === 'single' ? 'Single Pass' : 
+                             ticket.type === 'stall' ? 'Stall Pass' : 
+                             ticket.type === 'children_only' ? 'Children Only' : 'Pass';
+    
     ticketsHTML += `
       <div style="background: #f8f9fa; padding: 20px; margin: 15px 0; border-radius: 8px; border-left: 4px solid #ed7519;">
-        <h3 style="color: #ed7519; margin: 0 0 10px 0;">${ticket.type === 'single' ? 'Single Pass' : 'Couple Pass'} #${displayTicketNumber}</h3>
+        <h3 style="color: #ed7519; margin: 0 0 10px 0;">${ticketTypeDisplay} #${displayTicketNumber}</h3>
         <p style="margin: 5px 0;"><strong>Adults:</strong> ${adultDetails.join(', ')}</p>
         ${childrenNames.length > 0 ? `<p style="margin: 5px 0;"><strong>Children:</strong> ${childrenNames.join(', ')}</p>` : ''}
-        <p style="margin: 5px 0;"><strong>Type:</strong> ${ticket.type === 'single' ? 'Single Pass' : 'Couple Pass'}</p>
+        <p style="margin: 5px 0;"><strong>Type:</strong> ${ticketTypeDisplay}</p>
         <p style="margin: 5px 0;"><strong>Children Included:</strong> ${ticket.children}</p>
       </div>
     `;
@@ -124,7 +163,7 @@ const generateEmailHTML = (bookingData) => {
             <p><strong>Payment Date:</strong> ${new Date(paymentDetails.timestamp).toLocaleDateString('en-IN')}</p>
             <p><strong>Your Ticket:</strong> ${tickets.length} ${tickets.length === 1 ? 'Pass' : 'Passes'}</p>
             <p><strong>Total Members in Your Ticket:</strong> ${tickets.reduce((total, ticket) => {
-              const totalPeople = ticket.type === 'single' ? 1 : 2;
+              const totalPeople = ticket.type === 'ladies' ? 1 : (ticket.type === 'single' ? 1 : 2);
               return total + totalPeople + ticket.children;
             }, 0)}</p>
           </div>
@@ -190,7 +229,18 @@ const generatePassImage = async (bookingData, ticketIndex) => {
     
     // Generate QR code for this ticket
     const ticketCode = generateTicketCode(bookingId, ticketIndex);
-    const totalAdults = ticket.type === 'single' ? 1 : 2;
+    let totalAdults;
+    if (ticket.type === 'ladies') {
+      totalAdults = 1;
+    } else if (ticket.type === 'single') {
+      totalAdults = 1;
+    } else if (ticket.type === 'couple') {
+      totalAdults = 2; // Deprecated: couple not used; kept for backward compatibility
+    } else if (ticket.type === 'stall') {
+      totalAdults = 2; // Stall pass is for 2 adults
+    } else {
+      totalAdults = 1; // Default fallback
+    }
     
     // Get adult details for this ticket
     const adultDetails = [];
@@ -216,8 +266,14 @@ const generatePassImage = async (bookingData, ticketIndex) => {
     }
     
     // Create QR data
+    const ticketTypeDisplay = ticket.type === 'ladies' ? 'Ladies Pass' : 
+                             ticket.type === 'single' ? 'Single Pass' : 
+                             ticket.type === 'stall' ? 'Stall Pass' : 
+                             ticket.type === 'children_only' ? 'Children Only' : 'Pass';
+    
     const qrData = `ASHA BANI DANDIYA RAAS 2025
 Ticket ID: ${ticketCode}
+Type: ${ticketTypeDisplay}
 Adults: ${totalAdults}
 Children: ${ticket.children}
 Adult Names: ${adultDetails.map(adult => adult.name).join(', ')}
@@ -342,12 +398,130 @@ Mobile: ${adultDetails[0]?.mobile || ''}`;
 
 // Helper function to get member count (same as frontend)
 const getMemberCount = (ticket, ticketIndex) => {
-  const totalPeople = ticket.type === 'single' ? 1 : 2;
+  let totalPeople;
+  if (ticket.type === 'ladies') {
+    totalPeople = 1;
+  } else if (ticket.type === 'single') {
+    totalPeople = 1;
+  } else if (ticket.type === 'stall') {
+    totalPeople = 2; // Stall pass is for 2 adults
+  } else if (ticket.type === 'children_only') {
+    totalPeople = 0;
+  } else {
+    totalPeople = 1; // Default fallback
+  }
+  
   const line1 = `${totalPeople} Adult${totalPeople > 1 ? 's' : ''}`;
   const line2 = ticket.children > 0
     ? `${ticket.children} Child${ticket.children > 1 ? 'ren' : ''}`
     : null;
   return [line1, line2];
+};
+
+// Function to generate dandiya pass image
+const generateDandiyaPassImage = async (dandiyaBookingData) => {
+  try {
+    // Handle both database format (booking_id, customer_name, amount) and API format (bookingId, customerName, totalAmount)
+    const bookingId = dandiyaBookingData.bookingId || dandiyaBookingData.booking_id;
+    if (!bookingId) {
+      throw new Error('Booking ID is required for dandiya pass generation');
+    }
+
+    // Generate a unique Ticket ID for dandiya pass (same as event pass logic)
+    // Always use ticketIndex = 0 for dandiya (since only one pass per booking)
+    const ticketIndex = 0;
+    const ticketId = generateTicketCode(bookingId, ticketIndex);
+
+    // Create QR data for dandiya pass - store all required info
+    const qrData = JSON.stringify({
+      type: 'dandiya',
+      ticketId,
+      bookingId,
+      customerName: dandiyaBookingData.customerName || dandiyaBookingData.customer_name,
+      mobile: dandiyaBookingData.mobile,
+      amount: dandiyaBookingData.totalAmount || dandiyaBookingData.amount
+    });
+
+    // Generate QR code
+    const qrCodeDataURL = await QRCode.toDataURL(qrData, {
+      width: 200,
+      margin: 2,
+      color: {
+        dark: '#000000',
+        light: '#FFFFFF'
+      }
+    });
+
+    // Load dandiya template image
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = path.dirname(__filename);
+    const templatePath = path.join(__dirname, 'src', 'assets', 'dandiya-pass-template.jpg');
+
+    const templateImg = await loadImage(templatePath);
+
+    // Create canvas with template dimensions
+    const canvas = createCanvas(templateImg.width, templateImg.height);
+    const ctx = canvas.getContext('2d');
+
+    // Draw template background
+    ctx.drawImage(templateImg, 0, 0);
+
+    // Use updated positions and styles from test-dandiya-template.js
+    const qrX = Math.floor(canvas.width * 0.25); // Right side
+    const qrY = Math.floor(canvas.height * 0.46); // Top area
+    const qrSize = Math.floor(canvas.width * 0.5); // 50% of width
+
+    const idX = Math.floor(canvas.width * 0.4); // Left side
+    const idY = Math.floor(canvas.height * 0.323); // Top area
+
+    // Draw Ticket ID value (no label, white color, large font)
+    ctx.font = '45px "League Spartan", "Arial", sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'left';
+    ctx.fillText(ticketId, idX + 50, idY);
+
+    // Load and place QR code
+    const qrImage = await loadImage(qrCodeDataURL);
+
+    // Draw QR code with rounded corners
+    const borderRadius = 15;
+
+    ctx.save();
+    ctx.beginPath();
+
+    // Create rounded rectangle path
+    const x = qrX;
+    const y = qrY;
+    const width = qrSize;
+    const height = qrSize;
+
+    ctx.moveTo(x + borderRadius, y);
+    ctx.lineTo(x + width - borderRadius, y);
+    ctx.quadraticCurveTo(x + width, y, x + width, y + borderRadius);
+    ctx.lineTo(x + width, y + height - borderRadius);
+    ctx.quadraticCurveTo(x + width, y + height, x + width - borderRadius, y + height);
+    ctx.lineTo(x + borderRadius, y + height);
+    ctx.quadraticCurveTo(x, y + height, x, y + height - borderRadius);
+    ctx.lineTo(x, y + borderRadius);
+    ctx.quadraticCurveTo(x, y, x + borderRadius, y);
+    ctx.closePath();
+
+    ctx.clip();
+    ctx.drawImage(qrImage, qrX, qrY, qrSize, qrSize);
+    ctx.restore();
+
+    // Convert canvas to buffer
+    const buffer = canvas.toBuffer('image/png');
+
+    return {
+      filename: `dandiya_pass_${bookingId}.png`,
+      content: buffer,
+      contentType: 'image/png'
+    };
+  } catch (error) {
+    console.error('Error generating dandiya pass image:', error);
+    return null;
+  }
 };
 
 // Function to generate ticket code (same as in frontend)
@@ -377,7 +551,7 @@ const sendConfirmationEmail = async (bookingData) => {
     // Process each ticket and send emails to all customers in that ticket
     for (let ticketIndex = 0; ticketIndex < tickets.length; ticketIndex++) {
       const ticket = tickets[ticketIndex];
-      const totalAdults = ticket.type === 'single' ? 1 : 2;
+      const totalAdults = ticket.type === 'ladies' ? 1 : (ticket.type === 'single' ? 1 : 2);
       
       // Get all email addresses for this ticket
       const ticketEmails = new Set();
@@ -463,73 +637,20 @@ const sendConfirmationEmail = async (bookingData) => {
 };
 
 // Create Order API
-app.post('/api/create-order', async (req, res) => {
+// Create booking without payment (pending payment)
+app.post('/api/create-booking', async (req, res) => {
   try {
-    const { amount, bookingId } = req.body;
-    
-    const options = {
-      amount: amount * 100, // Convert to paise
-      currency: 'INR',
-      receipt: bookingId,
-      notes: {
-        booking_id: bookingId,
-        event: 'Asha Bani Dandiya Raas 2025',
-        date: '30th September 2025'
-      }
-    };
-
-    const order = await razorpay.orders.create(options);
-    
-    res.json({
-      success: true,
-      order: order
-    });
-  } catch (error) {
-    console.error('Error creating order:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to create order'
-    });
-  }
-});
-
-// Verify Payment API
-app.post('/api/verify-payment', async (req, res) => {
-  try {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, bookingData } = req.body;
-    
-    // Verify signature
-    const body = razorpay_order_id + "|" + razorpay_payment_id;
-    const expectedSignature = crypto
-      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
-      .update(body.toString())
-      .digest('hex');
-
-    if (expectedSignature === razorpay_signature) {
-      res.json({
-        success: true,
-        message: 'Payment verified successfully'
-      });
-    } else {
-      res.status(400).json({
+    // Event booking deadline: 28 September 2025, 23:59:59
+    const bookingDeadline = new Date('2025-09-28T23:59:59');
+    const now = new Date();
+    if (now > bookingDeadline) {
+      return res.status(403).json({
         success: false,
-        error: 'Invalid signature'
+        error: 'Event booking is closed. No new bookings are accepted.'
       });
     }
-  } catch (error) {
-    console.error('Error verifying payment:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to verify payment'
-    });
-  }
-});
 
-// Send Confirmation Email API (backup endpoint)
-app.post('/api/send-confirmation-email', async (req, res) => {
-  try {
     const { bookingData } = req.body;
-    
     if (!bookingData) {
       return res.status(400).json({
         success: false,
@@ -537,79 +658,217 @@ app.post('/api/send-confirmation-email', async (req, res) => {
       });
     }
 
-    // Save booking to database
+    // Save booking to database with pending status
     try {
       await saveBooking(bookingData);
     } catch (dbError) {
       console.error('Error saving booking to database:', dbError);
-      // Continue with email sending even if database save fails
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to save booking'
+      });
     }
 
-    const emailSent = await sendConfirmationEmail(bookingData);
-    
-    if (emailSent) {
-      res.json({
-        success: true,
-        message: 'Personalized confirmation emails sent successfully',
-        details: {
-          totalTickets: bookingData.tickets.length,
-          totalEmails: bookingData.tickets.reduce((total, ticket) => {
-            const totalAdults = ticket.type === 'single' ? 1 : 2;
-            return total + totalAdults;
-          }, 0)
-        }
-      });
-    } else {
-      res.status(500).json({
-        success: false,
-        error: 'Failed to send confirmation emails'
-      });
-    }
+    res.json({
+      success: true,
+      message: 'Booking created successfully. Please complete payment to receive your passes.',
+      bookingId: bookingData.bookingId,
+      paymentInfo: {
+        upiUrl: PAYMENT_CONFIG.upiUrl,
+        whatsappNumber: PAYMENT_CONFIG.whatsappNumber
+      }
+    });
   } catch (error) {
-    console.error('Error sending confirmation emails:', error);
+    console.error('Error creating booking:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to send confirmation emails'
+      error: 'Failed to create booking'
     });
   }
 });
 
-// Get Razorpay configuration endpoint
-app.get('/api/razorpay-config', (req, res) => {
+// Create Dandiya Booking API
+app.post('/api/create-dandiya-booking', async (req, res) => {
+  try {
+    const { bookingData } = req.body;
+    
+    if (!bookingData) {
+      return res.status(400).json({
+        success: false,
+        error: 'Dandiya booking data is required'
+      });
+    }
+
+    // Validate required fields
+    if (!bookingData.bookingId || !bookingData.customerName || !bookingData.totalAmount) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: bookingId, customerName, totalAmount'
+      });
+    }
+
+    // Save dandiya booking to database with pending status
+    try {
+      await saveDandiyaBooking(bookingData);
+    } catch (dbError) {
+      console.error('Error saving dandiya booking to database:', dbError);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to save dandiya booking'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Dandiya booking created successfully. Please complete payment to receive your pass.',
+      bookingId: bookingData.bookingId,
+      paymentInfo: {
+        upiUrl: PAYMENT_CONFIG.upiUrl,
+        whatsappNumber: PAYMENT_CONFIG.whatsappNumber
+      }
+    });
+  } catch (error) {
+    console.error('Error creating dandiya booking:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create dandiya booking'
+    });
+  }
+});
+
+// Get payment configuration
+app.get('/api/payment-config', (req, res) => {
   res.json({
     success: true,
     config: {
-      key: process.env.RAZORPAY_KEY_ID,
-      currency: 'INR',
-      name: 'Asha Bani Dandiya Raas 2025'
+      upiUrl: PAYMENT_CONFIG.upiUrl,
+      whatsappNumber: PAYMENT_CONFIG.whatsappNumber
     }
   });
 });
 
-// Admin Authentication Middleware
-const requireAdminAuth = (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({
+
+
+// Admin endpoint to update dandiya payment status
+app.post('/api/admin/update-dandiya-payment-status', requireAdminAuth, async (req, res) => {
+  try {
+    const { bookingId, status } = req.body;
+    
+    if (!bookingId || !status) {
+      return res.status(400).json({
+        success: false,
+        error: 'Booking ID and status are required'
+      });
+    }
+    
+    if (!['pending', 'paid', 'cancelled'].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid status. Must be pending, paid, or cancelled'
+      });
+    }
+    
+    const result = await updateDandiyaPaymentStatus(bookingId, status);
+    
+    if (result.changes > 0) {
+      res.json({
+        success: true,
+        message: `Dandiya payment status updated to ${status}`,
+        bookingId,
+        status
+      });
+    } else {
+      res.status(404).json({
+        success: false,
+        error: 'Dandiya booking not found'
+      });
+    }
+  } catch (error) {
+    console.error('Error updating dandiya payment status:', error);
+    res.status(500).json({
       success: false,
-      error: 'Authentication required'
+      error: 'Failed to update dandiya payment status'
     });
   }
-  
-  const token = authHeader.substring(7); // Remove 'Bearer ' prefix
-  
-  // For now, we'll use a simple token check
-  // In production, you might want to use JWT tokens
-  if (token === 'admin-authenticated') {
-    next();
-  } else {
-    res.status(401).json({
+});
+
+// Admin endpoint to delete dandiya booking
+app.delete('/api/admin/delete-dandiya-booking/:bookingId', requireAdminAuth, async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+    
+    if (!bookingId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Booking ID is required'
+      });
+    }
+    
+    const result = await deleteDandiyaBooking(bookingId);
+    
+    if (result.changes > 0) {
+      res.json({
+        success: true,
+        message: 'Dandiya booking deleted successfully',
+        bookingId
+      });
+    } else {
+      res.status(404).json({
+        success: false,
+        error: 'Dandiya booking not found'
+      });
+    }
+  } catch (error) {
+    console.error('Error deleting dandiya booking:', error);
+    res.status(500).json({
       success: false,
-      error: 'Invalid authentication token'
+      error: 'Failed to delete dandiya booking'
     });
   }
-};
+});
+
+// Admin endpoint to update payment status
+app.post('/api/admin/update-payment-status', requireAdminAuth, async (req, res) => {
+  try {
+    const { bookingId, status } = req.body;
+    
+    if (!bookingId || !status) {
+      return res.status(400).json({
+        success: false,
+        error: 'Booking ID and status are required'
+      });
+    }
+    
+    if (!['pending', 'paid', 'cancelled'].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid status. Must be pending, paid, or cancelled'
+      });
+    }
+    
+    const result = await updatePaymentStatus(bookingId, status);
+    
+    if (result.changes > 0) {
+      res.json({
+        success: true,
+        message: `Payment status updated to ${status}`,
+        bookingId,
+        status
+      });
+    } else {
+      res.status(404).json({
+        success: false,
+        error: 'Booking not found'
+      });
+    }
+  } catch (error) {
+    console.error('Error updating payment status:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update payment status'
+    });
+  }
+});
 
 // Admin Authentication endpoint
 app.post('/api/admin/login', async (req, res) => {
@@ -737,21 +996,138 @@ app.get('/api/admin/download-pass/:bookingId/:ticketIndex', requireAdminAuth, as
   }
 });
 
-// Create offline booking (admin only)
-app.post('/api/admin/create-offline-booking', requireAdminAuth, async (req, res) => {
+// Download dandiya pass endpoint (protected)
+app.get('/api/admin/download-dandiya-pass/:bookingId', requireAdminAuth, async (req, res) => {
   try {
-    const { ticketType, childrenCount, adults, children, amount } = req.body;
+    const { bookingId } = req.params;
     
-    // Validate required fields
-    if (!ticketType || !adults || !Array.isArray(adults)) {
-      return res.status(400).json({
+    // Get dandiya booking data from database
+    const dandiyaBooking = await getDandiyaBookingById(bookingId);
+    
+    if (!dandiyaBooking) {
+      return res.status(404).json({
         success: false,
-        error: 'Missing required fields'
+        error: 'Dandiya booking not found'
       });
     }
     
-    // Validate adult count
-    const expectedAdultCount = ticketType === 'single' ? 1 : 2;
+    // Generate dandiya pass image
+    const passImage = await generateDandiyaPassImage(dandiyaBooking);
+    
+    if (!passImage) {
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to generate dandiya pass image'
+      });
+    }
+    
+    // Set headers for file download
+    res.setHeader('Content-Type', passImage.contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${passImage.filename}"`);
+    
+    // Send the image buffer
+    res.send(passImage.content);
+    
+  } catch (error) {
+    console.error('Error downloading dandiya pass:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to download dandiya pass'
+    });
+  }
+});
+
+// Create offline dandiya booking (admin only)
+app.post('/api/admin/create-dandiya-booking', requireAdminAuth, async (req, res) => {
+  try {
+  const bookingData = req.body.bookingData || {};
+  const { customerName, mobile, totalAmount } = bookingData;
+    
+    // Validate required fields
+    if (!customerName || !mobile || !totalAmount) {
+      return res.status(400).json({
+        success: false,
+        error: 'Customer name, mobile, and total amount are required'
+      });
+    }
+    
+    // Generate booking ID
+    const generateDandiyaBookingId = () => {
+      const timestamp = Date.now().toString();
+      const random = Math.random().toString(36).substr(2, 5).toUpperCase();
+      return `DANDIYA${timestamp.slice(-6)}${random}`;
+    };
+    
+    const bookingId = generateDandiyaBookingId();
+    
+    // Create dandiya booking data
+    const dandiyaBookingData = {
+      bookingId,
+      customerName: customerName.trim(),
+      mobile: mobile.trim(),
+      totalAmount,
+      type: 'dandiya',
+      timestamp: new Date().toISOString()
+    };
+    
+    // Save dandiya booking to database
+    await saveDandiyaBooking(dandiyaBookingData);
+    
+    // Generate dandiya pass
+    const passImage = await generateDandiyaPassImage(dandiyaBookingData);
+    
+    res.json({
+      success: true,
+      message: 'Dandiya booking created successfully',
+      booking: {
+        bookingId,
+        customerName,
+        mobile,
+        totalAmount,
+        type: 'dandiya',
+        passGenerated: !!passImage
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error creating offline dandiya booking:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create dandiya booking'
+    });
+  }
+});
+
+// Create offline booking (admin only)
+app.post('/api/admin/create-offline-booking', requireAdminAuth, async (req, res) => {
+  try {
+    const { ticketType, childrenCount, adults, children, totalAmount, selectedPhase } = req.body;
+    
+    // Validate required fields
+    if (!ticketType || !adults || !Array.isArray(adults) || !totalAmount || isNaN(totalAmount)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields or invalid amount'
+      });
+    }
+        
+    // Validate adult count based on ticket type
+    let expectedAdultCount;
+    if (ticketType === 'ladies') {
+      expectedAdultCount = 1;
+    } else if (ticketType === 'single') {
+      expectedAdultCount = 1;
+    } else if (ticketType === 'stall') {
+      expectedAdultCount = 2; // Stall pass is for 2 adults
+    } else if (ticketType === 'children_only') {
+      expectedAdultCount = 0; // Children only booking has no adults
+    } else {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid ticket type'
+      });
+    }
+    
     if (adults.length !== expectedAdultCount) {
       return res.status(400).json({
         success: false,
@@ -777,7 +1153,7 @@ app.post('/api/admin/create-offline-booking', requireAdminAuth, async (req, res)
       paymentDetails: {
         paymentId: 'OFFLINE_PAYMENT',
         orderId: 'OFFLINE_ORDER',
-        amount: amount,
+        amount: totalAmount,
         status: 'success',
         timestamp: new Date().toISOString()
       },
@@ -860,6 +1236,208 @@ app.get('/api/admin/bookings', requireAdminAuth, async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to fetch bookings'
+    });
+  }
+});
+
+// Get all dandiya bookings (admin only)
+app.get('/api/admin/dandiya-bookings', requireAdminAuth, async (req, res) => {
+  try {
+    const bookings = await getAllDandiyaBookings();
+    res.json({
+      success: true,
+      bookings
+    });
+  } catch (error) {
+    console.error('Error fetching dandiya bookings:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch dandiya bookings'
+    });
+  }
+});
+
+// QR Code Scanner API endpoints
+
+
+
+app.post('/api/admin/scan-ticket', requireAdminAuth, async (req, res) => {
+  try {
+    const { qrData } = req.body;
+    
+    if (!qrData) {
+      return res.status(400).json({
+        success: false,
+        error: 'QR code data is required'
+      });
+    }
+    
+    // Parse QR data to check if it's a dandiya pass
+    let qrDataParsed;
+    try {
+      qrDataParsed = JSON.parse(qrData);
+    } catch (parseError) {
+      // If it's not JSON, treat it as a regular ticket QR code
+      qrDataParsed = null;
+    }
+    
+    // Check if it's a dandiya pass
+    if (qrDataParsed && qrDataParsed.type === 'dandiya') {
+      // Handle dandiya pass scanning
+      const { getDandiyaBookingById, isTicketScanned, recordTicketScan } = await import('./database.js');
+      const bookingId = qrDataParsed.bookingId;
+      const ticketId = qrDataParsed.ticketId;
+      const dandiyaBooking = await getDandiyaBookingById(bookingId);
+      if (!dandiyaBooking) {
+        return res.status(404).json({
+          success: false,
+          error: 'Dandiya booking not found'
+        });
+      }
+      // Check scan status for dandiya pass (use ticketId as code, ticketIndex=0)
+      let scanRecord = await isTicketScanned(ticketId);
+      let isAlreadyScanned = !!scanRecord;
+      if (!isAlreadyScanned) {
+        await recordTicketScan(bookingId, 0, ticketId);
+        scanRecord = {
+          scanned_at: new Date().toISOString(),
+          scanned_by: 'admin'
+        };
+      }
+      res.json({
+        success: true,
+        ticket: {
+          type: 'dandiya',
+          booking_id: dandiyaBooking.booking_id,
+          customer_name: dandiyaBooking.customer_name,
+          mobile: dandiyaBooking.mobile,
+          amount: dandiyaBooking.amount,
+          payment_status: dandiyaBooking.payment_status,
+          created_at: dandiyaBooking.created_at,
+          ticket_code: ticketId
+        },
+        isAlreadyScanned,
+        scanRecord,
+        message: isAlreadyScanned ? 'Dandiya pass already scanned' : 'Dandiya pass scanned successfully'
+      });
+      
+    } else {
+      // Handle regular ticket scanning
+      const { getTicketByQRData, isTicketScanned, recordTicketScan } = await import('./database.js');
+      
+      // Get ticket details from QR data
+      const ticket = await getTicketByQRData(qrData);
+      
+      // Check if ticket has already been scanned
+      const existingScan = await isTicketScanned(ticket.ticket_code);
+      
+      let isAlreadyScanned = false;
+      let scanRecord = null;
+      
+      if (existingScan) {
+        isAlreadyScanned = true;
+        scanRecord = existingScan;
+      } else {
+        // Record the scan
+        await recordTicketScan(ticket.booking_id, ticket.ticket_index, ticket.ticket_code);
+        scanRecord = {
+          scanned_at: new Date().toISOString(),
+          scanned_by: 'admin'
+        };
+      }
+      
+      res.json({
+        success: true,
+        ticket,
+        isAlreadyScanned,
+        scanRecord,
+        message: isAlreadyScanned ? 'Ticket already scanned' : 'Ticket scanned successfully'
+      });
+    }
+    
+  } catch (error) {
+    console.error('Error scanning ticket:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to scan ticket'
+    });
+  }
+});
+
+// Get scan history for a ticket
+app.get('/api/admin/ticket-scans/:ticketCode', requireAdminAuth, async (req, res) => {
+  try {
+    const { ticketCode } = req.params;
+    
+    // Import the database functions
+    const { db } = await import('./database.js');
+    
+    const scans = await new Promise((resolve, reject) => {
+      db.all(`
+        SELECT * FROM ticket_scans 
+        WHERE ticket_code = ?
+        ORDER BY scanned_at DESC
+      `, [ticketCode], (err, rows) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(rows);
+        }
+      });
+    });
+    
+    res.json({
+      success: true,
+      scans
+    });
+    
+  } catch (error) {
+    console.error('Error fetching scan history:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch scan history'
+    });
+  }
+});
+
+
+
+// Delete a ticket
+app.delete('/api/admin/delete-ticket', requireAdminAuth, async (req, res) => {
+  try {
+    const { bookingId, ticketId } = req.body;
+    
+    if (!bookingId || !ticketId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Booking ID and Ticket ID are required'
+      });
+    }
+    
+    // Import the database functions
+    const { deleteTicket } = await import('./database.js');
+    
+    // Delete the ticket and all related data
+    const result = await deleteTicket(bookingId, ticketId);
+    
+    if (result.changes === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Ticket not found or could not be deleted'
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: 'Ticket deleted successfully',
+      changes: result.changes
+    });
+    
+  } catch (error) {
+    console.error('Error deleting ticket:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to delete ticket'
     });
   }
 });

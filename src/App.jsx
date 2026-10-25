@@ -4,6 +4,8 @@ import HomePage from './components/HomePage';
 import BookingPage from './components/BookingPage';
 import SuccessPage from './components/SuccessPage';
 import AdminPanel from './components/AdminPanel';
+import DandiyaPage from './components/DandiyaPage';
+import DandiyaPaymentStep from './components/DandiyaPaymentStep';
 
 function App() {
   return (
@@ -15,6 +17,8 @@ function App() {
             <Route path="/booking" element={<BookingPage />} />
             <Route path="/success" element={<SuccessPage />} />
             <Route path="/admin" element={<AdminPanel />} />
+            <Route path="/dandiya" element={<DandiyaPage />} />
+            <Route path="/dandiya-payment" element={<DandiyaPaymentStep />} />
           </Routes>
         </div>
       </Router>

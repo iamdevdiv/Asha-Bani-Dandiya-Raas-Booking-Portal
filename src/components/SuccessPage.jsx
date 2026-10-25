@@ -10,64 +10,18 @@ const SuccessPage = () => {
   const navigate = useNavigate();
   const [qrCodes, setQrCodes] = useState({});
   const [downloading, setDownloading] = useState(false);
-  const [emailStatus, setEmailStatus] = useState('idle');
-  const emailSentRef = useRef(false);
-  const emailSendingRef = useRef(false);
 
   useEffect(() => {
-    if (!bookingId || !paymentDetails) {
+    if (!bookingId) {
       navigate('/');
       return;
     }
 
     // Generate QR codes for each ticket
     generateQRCodes();
-    
-    // Send confirmation email in background (non-blocking) - only if not already sent or sending
-    if (!emailSentRef.current && !emailSendingRef.current) {
-      emailSendingRef.current = true;
-      setTimeout(() => {
-        sendConfirmationEmail();
-      }, 100);
-    }
-  }, [bookingId, paymentDetails]);
+  }, [bookingId]);
 
-  const sendConfirmationEmail = async () => {
-    // Prevent duplicate emails
-    if (emailSentRef.current) {
-      return;
-    }
-    
-    try {
-      setEmailStatus('sending');
-      const response = await fetch(`${API_BASE_URL}/api/send-confirmation-email`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          bookingData: {
-            bookingId,
-            paymentDetails,
-            tickets,
-            customerDetails
-          }
-        })
-      });
 
-      const data = await response.json();
-      if (data.success) {
-        setEmailStatus('sent');
-        emailSentRef.current = true;
-      } else {
-        setEmailStatus('failed');
-      }
-      emailSendingRef.current = false;
-    } catch (error) {
-      setEmailStatus('failed');
-      emailSendingRef.current = false;
-    }
-  };
 
   const generateQRCodes = async () => {
     const codes = {};
@@ -347,7 +301,7 @@ Mobile: ${adultDetails[0]?.mobile || ''}`;
                 <div><span className="font-semibold">Time:</span> 7:00 PM</div>
                 <div><span className="font-semibold">Total Tickets:</span> {tickets.length}</div>
                 <div><span className="font-semibold">Total Members:</span> {tickets.reduce((total, ticket, index) => {
-                  const totalPeople = ticket.type === 'single' ? 1 : 2;
+                  const totalPeople = 1; // Ladies pass is always 1 adult
                   return total + totalPeople + ticket.children;
                 }, 0)}</div>
               </div>
@@ -421,9 +375,10 @@ Mobile: ${adultDetails[0]?.mobile || ''}`;
                   <button
                     onClick={() => downloadPass(ticketIndex)}
                     disabled={downloading}
-                    className="w-full btn-secondary py-3"
+                    className="w-full btn-secondary py-3 opacity-50 cursor-not-allowed"
+                    title="Passes will be available once payment is verified"
                   >
-                    Download Pass
+                    Download Pass (Payment Pending)
                   </button>
                 </div>
               );
@@ -431,38 +386,29 @@ Mobile: ${adultDetails[0]?.mobile || ''}`;
           </div>
         </div>
 
-        {/* Email Status */}
-        <div className="card mb-8">
-          <h3 className="text-lg font-semibold mb-3">Email Confirmation</h3>
-          <div className="space-y-3">
-            {emailStatus === 'sending' && (
-              <div className="flex items-center space-x-3">
-                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-                <span className="text-blue-600">Sending personalized confirmation emails...</span>
-              </div>
-            )}
-            {emailStatus === 'sent' && (
-              <div className="space-y-2">
-                <div className="flex items-center space-x-3">
-                  <div className="text-2xl">✅</div>
-                  <span className="text-green-600">Personalized confirmation emails sent successfully!</span>
-                </div>
-                <div className="text-sm text-gray-600 ml-8">
-                  Each customer has received an email with their specific ticket details and complete digital pass design attachment.
-                </div>
-              </div>
-            )}
-            {emailStatus === 'failed' && (
-              <div className="space-y-2">
-                <div className="flex items-center space-x-3">
-                  <div className="text-2xl">⚠️</div>
-                  <span className="text-red-600">Failed to send confirmation emails. Please check your email manually.</span>
-                </div>
-                <div className="text-sm text-gray-600 ml-8">
-                  You can still download your passes from this page.
-                </div>
-              </div>
-            )}
+
+
+        {/* Payment Status */}
+        <div className="card bg-yellow-50 border-yellow-200 mb-8">
+          <h3 className="text-lg font-semibold text-yellow-900 mb-3">Payment Status</h3>
+          <div className="flex items-center space-x-3 mb-3">
+            <div className="text-2xl">⏳</div>
+            <span className="text-yellow-800 font-medium">Payment Pending</span>
+          </div>
+          <p className="text-sm text-yellow-700 mb-3">
+            Your booking has been created successfully! Please complete your payment and send the screenshot to WhatsApp to receive your passes.
+          </p>
+          <div className="bg-white border border-yellow-300 rounded-lg p-3">
+            <p className="text-sm text-yellow-800">
+              <strong>Next Steps:</strong>
+            </p>
+            <ol className="text-sm text-yellow-700 mt-2 space-y-1">
+              <li>1. Complete payment via QR code or UPI links</li>
+              <li>2. Take screenshot of payment confirmation</li>
+              <li>3. Send screenshot to WhatsApp with your Booking ID</li>
+              <li>4. Wait for payment verification (24-48 hours)</li>
+              <li>5. Passes will be sent to your email once verified</li>
+            </ol>
           </div>
         </div>
 
@@ -470,11 +416,11 @@ Mobile: ${adultDetails[0]?.mobile || ''}`;
         <div className="card bg-blue-50 border-blue-200 mb-8">
           <h3 className="text-lg font-semibold text-blue-900 mb-3">Important Information</h3>
           <ul className="text-sm text-blue-800 space-y-2">
-            <li>• Complete digital pass designs have been attached to your emails</li>
+            <li>• Passes will be available for download once payment is verified</li>
             <li>• Gates open at 6:30 PM, event starts at 7:00 PM</li>
             <li>• Food and refreshments are included with your pass</li>
             <li>• Parking is available at the venue</li>
-            <li>• Additional passes can be downloaded from this page</li>
+            <li>• You can download passes from this page once payment is verified</li>
           </ul>
         </div>
 
@@ -511,6 +457,7 @@ Mobile: ${adultDetails[0]?.mobile || ''}`;
             <div>📞 Contact us: 8126106660 | 8439260603 | 7906443726</div>
             <div>📍 Venue: Maharaja Agrasen Bhavan, Aggarwal Dharamshala</div>
             <div>🎪 Dandiya Sticks: 9897120123</div>
+            <div>📧 Lost your passes? Contact: 8439260603</div>
           </div>
         </div>
 

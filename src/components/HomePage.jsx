@@ -1,6 +1,11 @@
 import { useNavigate } from 'react-router-dom';
+import { getAllPhases, getCurrentPhaseName, getCurrentLadiesPrice, getChildPrice } from '../utils/pricing';
 
 const HomePage = () => {
+  // Event booking deadline: 28 September 2025, 23:59:59
+  const bookingDeadline = new Date('2025-09-28T23:59:59');
+  const now = new Date();
+  const isBookingClosed = now > bookingDeadline;
   const navigate = useNavigate();
 
   const handleBookTickets = () => {
@@ -44,10 +49,19 @@ const HomePage = () => {
 
             <button
               onClick={handleBookTickets}
-              className="bg-white text-orange-600 hover:bg-gray-100 font-bold text-lg md:text-xl px-8 md:px-12 py-3 md:py-4 rounded-lg shadow-lg transform hover:scale-105 transition-all duration-300 animate-pulse-slow"
+              className={`bg-white text-orange-600 font-bold text-lg md:text-xl px-8 md:px-12 py-3 md:py-4 rounded-lg shadow-lg transform transition-all duration-300 animate-pulse-slow ${isBookingClosed ? 'opacity-50 cursor-not-allowed pointer-events-none' : 'hover:bg-gray-100 hover:scale-105'}`}
+              disabled={isBookingClosed}
             >
               🎫 Book Your Tickets Now!
             </button>
+            {isBookingClosed && (
+              <div className="mt-6 bg-red-50 border border-red-200 rounded-lg p-4 text-center">
+                <div className="text-2xl mb-2">⛔</div>
+                <h3 className="text-lg font-bold text-red-700 mb-2">Online Booking Closed</h3>
+                <p className="text-red-800 text-base mb-2">Online ticket booking is now closed.</p>
+                <p className="text-gray-700 text-sm">For offline booking, contact <span className="font-bold">8439260603</span></p>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -65,59 +79,133 @@ const HomePage = () => {
           </div>
 
           <div className="grid md:grid-cols-3 gap-6 md:gap-8 mb-8 md:mb-12">
-            <div className="card text-center border-2 border-green-200 hover:border-green-400 transition-all duration-300 transform scale-105 max-w-sm mx-auto w-full">
-              <div className="text-4xl md:text-6xl mb-4">🚀</div>
-              <h3 className="text-xl md:text-2xl font-bold mb-2">Early Bird</h3>
-              <div className="text-xs md:text-sm text-gray-600 mb-4">16 August - 29 August</div>
-              <div className="text-xl md:text-2xl font-bold text-green-600 mb-4">₹399 / ₹799</div>
-              <ul className="text-sm md:text-base text-gray-600 space-y-2">
-                <li>• Single Pass: ₹399</li>
-                <li>• Couple Pass: ₹799</li>
-                <li>• Best prices available</li>
-                <li>• Limited time offer</li>
-              </ul>
-              <div className="mt-4 p-2 bg-green-100 rounded-lg">
-                <span className="text-green-800 font-semibold text-sm md:text-base">CURRENT PHASE</span>
-              </div>
-              <button
-                onClick={handleBookTickets}
-                className="mt-4 bg-green-600 text-white hover:bg-green-700 font-semibold px-6 py-2 rounded-lg transition-all duration-300 transform hover:scale-105"
-              >
-                🎫 Book Now
-              </button>
-            </div>
-
-            <div className="card text-center border-2 border-orange-200 hover:border-orange-400 transition-all duration-300 max-w-sm mx-auto w-full">
-              <div className="text-4xl md:text-6xl mb-4">📅</div>
-              <h3 className="text-xl md:text-2xl font-bold mb-2">Phase 1</h3>
-              <div className="text-xs md:text-sm text-gray-600 mb-4">30 August - 10 September</div>
-              <div className="text-xl md:text-2xl font-bold text-orange-600 mb-4">₹499 / ₹899</div>
-              <ul className="text-sm md:text-base text-gray-600 space-y-2">
-                <li>• Single Pass: ₹499</li>
-                <li>• Couple Pass: ₹899</li>
-                <li>• Regular pricing</li>
-                <li>• Book before Phase 2</li>
-              </ul>
-            </div>
-
-            <div className="card text-center border-2 border-red-200 hover:border-red-400 transition-all duration-300 max-w-sm mx-auto w-full">
-              <div className="text-4xl md:text-6xl mb-4">⏰</div>
-              <h3 className="text-xl md:text-2xl font-bold mb-2">Phase 2</h3>
-              <div className="text-xs md:text-sm text-gray-600 mb-4">11 September - 25 September</div>
-              <div className="text-xl md:text-2xl font-bold text-red-600 mb-4">₹599 / ₹999</div>
-              <ul className="text-sm md:text-base text-gray-600 space-y-2">
-                <li>• Single Pass: ₹599</li>
-                <li>• Couple Pass: ₹999</li>
-                <li>• Last chance pricing</li>
-                <li>• Limited availability</li>
-              </ul>
-            </div>
+            {getAllPhases().map((phase, index) => {
+              const isCurrentPhase = phase.isCurrent;
+                             const getPhaseIcon = (phaseKey) => {
+                 switch (phaseKey) {
+                   case 'early_bird': return '🚀';
+                   case 'phase1': return '⚡';
+                   case 'phase2': return '🔥';
+                   case 'phase3': return '💎';
+                   default: return '🎫';
+                 }
+               };
+              
+                             const getPhaseColors = (phaseKey, isActive) => {
+                 // If phase is not active, return greyed out colors
+                 if (!isActive) {
+                   return {
+                     border: 'border-gray-200',
+                     text: 'text-gray-400',
+                     bg: 'bg-gray-400 cursor-not-allowed',
+                     currentBg: 'bg-gray-50',
+                     currentText: 'text-gray-500'
+                   };
+                 }
+                 
+                 switch (phaseKey) {
+                   case 'early_bird': return {
+                     border: 'border-green-200 hover:border-green-400',
+                     text: 'text-green-600',
+                     bg: 'bg-green-600 hover:bg-green-700',
+                     currentBg: 'bg-green-100',
+                     currentText: 'text-green-800'
+                   };
+                   case 'phase1': return {
+                     border: 'border-orange-200 hover:border-orange-400',
+                     text: 'text-orange-600',
+                     bg: 'bg-orange-600 hover:bg-orange-700',
+                     currentBg: 'bg-orange-100',
+                     currentText: 'text-orange-800'
+                   };
+                   case 'phase2': return {
+                     border: 'border-red-200 hover:border-red-400',
+                     text: 'text-red-600',
+                     bg: 'bg-red-600 hover:bg-red-700',
+                     currentBg: 'bg-red-100',
+                     currentText: 'text-red-800'
+                   };
+                   case 'phase3': return {
+                     border: 'border-purple-200 hover:border-purple-400',
+                     text: 'text-purple-600',
+                     bg: 'bg-purple-600 hover:bg-purple-700',
+                     currentBg: 'bg-purple-100',
+                     currentText: 'text-purple-800'
+                   };
+                   default: return {
+                     border: 'border-gray-200 hover:border-gray-400',
+                     text: 'text-gray-600',
+                     bg: 'bg-gray-600 hover:bg-gray-700',
+                     currentBg: 'bg-gray-100',
+                     currentText: 'text-gray-800'
+                   };
+                 }
+               };
+              
+                             const isPhaseActive = phase.isActive;
+               const isPhaseExpired = new Date() > phase.endDate;
+               const isPhaseFuture = new Date() < phase.startDate;
+               const colors = getPhaseColors(phase.key, isPhaseActive);
+               const dateRange = `${phase.startDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} - ${phase.endDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`;
+               
+               return (
+                 <div 
+                   key={phase.key}
+                   className={`card text-center border-2 ${colors.border} transition-all duration-300 ${isCurrentPhase ? 'transform scale-105' : ''} max-w-sm mx-auto w-full ${!isPhaseActive ? 'opacity-60' : ''}`}
+                 >
+                  <div className="text-4xl md:text-6xl mb-4">{getPhaseIcon(phase.key)}</div>
+                  <h3 className="text-xl md:text-2xl font-bold mb-2">{phase.name}</h3>
+                  <div className="text-xs md:text-sm text-gray-600 mb-4">{dateRange}</div>
+                  <div className={`text-xl md:text-2xl font-bold ${colors.text} mb-4`}>₹{phase.ladiesPrice}</div>
+                  <ul className="text-sm md:text-base text-gray-600 space-y-2">
+                    <li>• Ladies Pass: ₹{phase.ladiesPrice}</li>
+                    <li>• Child Pass: ₹{phase.childPrice}</li>
+                    {phase.key === 'early_bird' && (
+                      <>
+                        <li>• Best prices available</li>
+                        <li>• Limited time offer</li>
+                      </>
+                    )}
+                    {phase.key === 'phase1' && (
+                      <>
+                        <li>• Regular pricing</li>
+                        <li>• Good availability</li>
+                      </>
+                    )}
+                                         {phase.key === 'phase2' && (
+                       <>
+                         <li>• Last minute pricing</li>
+                         <li>• Limited availability</li>
+                       </>
+                     )}
+                     {phase.key === 'phase3' && (
+                       <>
+                         <li>• Final phase pricing</li>
+                         <li>• Very limited availability</li>
+                       </>
+                     )}
+                  </ul>
+                  {isCurrentPhase && (
+                    <div className={`mt-4 p-2 ${colors.currentBg} rounded-lg`}>
+                      <span className={`${colors.currentText} font-semibold text-sm md:text-base`}>CURRENT PHASE</span>
+                    </div>
+                  )}
+                                     <button
+                     onClick={handleBookTickets}
+                     disabled={!isPhaseActive}
+                     className={`mt-4 ${colors.bg} text-white font-semibold px-6 py-2 rounded-lg transition-all duration-300 transform hover:scale-105 ${!isPhaseActive ? 'opacity-50 cursor-not-allowed' : ''}`}
+                   >
+                     {isPhaseActive ? '🎫 Book Now' : isPhaseExpired ? '⏰ Expired' : '⏰ Coming Soon'}
+                   </button>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
 
       {/* Dandiya Sticks Banner */}
-      <div className="py-12 md:py-16 bg-gradient-to-r from-purple-600 to-pink-600">
+      {/* <div className="py-12 md:py-16 bg-gradient-to-r from-purple-600 to-pink-600">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 md:p-8">
             <div className="text-4xl md:text-6xl mb-4">🎪</div>
@@ -155,7 +243,7 @@ const HomePage = () => {
             </div>
           </div>
         </div>
-      </div>
+      </div> */}
 
       {/* Event Details Section */}
       <div className="py-12 md:py-16 bg-gray-50">
@@ -221,43 +309,34 @@ const HomePage = () => {
             </p>
             <div className="bg-green-100 border-2 border-green-300 rounded-lg p-4 max-w-2xl mx-auto">
               <p className="text-green-800 font-semibold text-base md:text-lg">
-                🚀 <span className="text-green-900">Early Bird Offer Active!</span> 
+                🚀 <span className="text-green-900">{getCurrentPhaseName()} Active!</span> 
                 <br className="md:hidden" />
-                <span className="text-green-700 text-sm md:text-base"> Prices shown below are for the current Early Bird phase (16 August - 29 August)</span>
+                <span className="text-green-700 text-sm md:text-base"> Prices shown below are for the current {getCurrentPhaseName()} phase</span>
               </p>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 lg:gap-8 mb-8 md:mb-12">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6 lg:gap-8 mb-8 md:mb-12">
             <div className="card text-center border-2 border-orange-200 hover:border-orange-400 transition-all duration-300 max-w-sm mx-auto w-full">
-              <div className="text-4xl md:text-6xl mb-4">👤</div>
-              <h3 className="text-xl md:text-2xl font-bold mb-2">Single Pass</h3>
-              <div className="text-3xl md:text-4xl font-bold text-orange-600 mb-4">₹399</div>
+              <div className="text-4xl md:text-6xl mb-4">👩</div>
+              <h3 className="text-xl md:text-2xl font-bold mb-2">Ladies Pass</h3>
+              <div className="text-3xl md:text-4xl font-bold text-orange-600 mb-4">₹{getCurrentLadiesPrice()}</div>
               <ul className="text-sm md:text-base text-gray-600 space-y-2">
                 <li>• Individual entry</li>
                 <li>• Food included</li>
                 <li>• Access to all activities</li>
-              </ul>
-            </div>
-
-            <div className="card text-center border-2 border-sky-200 hover:border-sky-400 transition-all duration-300 transform scale-105 max-w-sm mx-auto w-full">
-              <div className="text-4xl md:text-6xl mb-4">💑</div>
-              <h3 className="text-xl md:text-2xl font-bold mb-2">Couple Pass</h3>
-              <div className="text-3xl md:text-4xl font-bold text-sky-600 mb-4">₹799</div>
-              <ul className="text-sm md:text-base text-gray-600 space-y-2">
-                <li>• Two adults entry</li>
-                <li>• Food included for both</li>
-                <li>• Access to all activities</li>
+                <li>• {getCurrentPhaseName()} pricing</li>
               </ul>
             </div>
 
             <div className="card text-center border-2 border-green-200 hover:border-green-400 transition-all duration-300 max-w-sm mx-auto w-full">
               <div className="text-4xl md:text-6xl mb-4">👶</div>
               <h3 className="text-xl md:text-2xl font-bold mb-2">Child Pass</h3>
-              <div className="text-3xl md:text-4xl font-bold text-green-600 mb-4">₹199</div>
+              <div className="text-3xl md:text-4xl font-bold text-green-600 mb-4">₹{getChildPrice()}</div>
               <ul className="text-sm md:text-base text-gray-600 space-y-2">
-                <li>• For children 0-10 years</li>
+                <li>• 6-10 years only</li>
                 <li>• Food included</li>
+                <li>• Access to all activities</li>
                 <li>• No Aadhaar required</li>
               </ul>
             </div>

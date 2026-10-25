@@ -5,6 +5,10 @@ import CustomerDetails from './CustomerDetails';
 import PaymentStep from './PaymentStep';
 
 const BookingPage = () => {
+  // Event booking deadline: 28 September 2025, 23:59:59
+  const bookingDeadline = new Date('2025-09-28T23:59:59');
+  const now = new Date();
+  const isBookingClosed = now > bookingDeadline;
   const { currentStep } = useBooking();
 
   const renderStep = () => {
@@ -47,13 +51,25 @@ const BookingPage = () => {
           </div>
         </div>
 
-        {/* Step Indicator */}
-        <StepIndicator />
+        {/* Booking Closed Message or Steps */}
+        {isBookingClosed ? (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-8 text-center mt-8">
+            <div className="text-4xl mb-2">⛔</div>
+            <h2 className="text-2xl font-bold text-red-700 mb-2">Event Booking Closed</h2>
+            <p className="text-red-800 text-base mb-2">Thank you for your interest! Ticket booking is now closed.</p>
+            <p className="text-gray-700 text-sm">We look forward to seeing you at the event!</p>
+          </div>
+        ) : (
+          <>
+            {/* Step Indicator */}
+            <StepIndicator />
 
-        {/* Step Content */}
-        <div className="mt-8">
-          {renderStep()}
-        </div>
+            {/* Step Content */}
+            <div className="mt-8">
+              {renderStep()}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
