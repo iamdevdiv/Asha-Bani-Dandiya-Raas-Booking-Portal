@@ -26,18 +26,19 @@ Production URL: [ashabani.iamdevdiv.com](https://ashabani.iamdevdiv.com)
 
 ## Architecture Overview
 
-```
-User Selects Pass -> Booking Created (Pending) -> UPI QR Generated
-                                                      |
-User Submits Verification <----------------------------+
-       |
-Admin Confirms Payment / Direct Auto-confirm
-       |
-Node Canvas Renders Pass Image + Ticket Code + QR Code
-       |
-Mailgun Sends Email with Attached Pass -> Attendee Receives Ticket
-                                                      |
-At Event Gate: Admin Scans QR via /admin -> Validates & Flags as Scanned
+```mermaid
+flowchart TD
+    A[Pass Selection] --> B[Create Pending Booking]
+    B --> C[Generate Dynamic UPI QR]
+    C --> D[Submit Payment Verification]
+    D --> E[Confirm Payment]
+    E --> F[Generate Digital Pass via Node Canvas]
+    F --> G[Direct Browser Download]
+    F --> H[Email Delivery via Mailgun]
+    G --> I[Venue Entry Gate]
+    H --> I
+    I --> J[Admin QR Scanner Validation]
+    J --> K[Mark Ticket as Scanned]
 ```
 
 ## Getting Started
