@@ -24,23 +24,6 @@ Production URL: [ashabani.iamdevdiv.com](https://ashabani.iamdevdiv.com)
 - **Email Delivery**: Nodemailer with Mailgun Transport
 - **QR Scanner**: HTML5-QRCode, ZXing
 
-## Architecture Overview
-
-```mermaid
-flowchart TD
-    A[Pass Selection] --> B[Create Pending Booking]
-    B --> C[Generate Dynamic UPI QR]
-    C --> D[Submit Payment Verification]
-    D --> E[Confirm Payment]
-    E --> F[Generate Digital Pass via Node Canvas]
-    F --> G[Direct Browser Download]
-    F --> H[Email Delivery via Mailgun]
-    G --> I[Venue Entry Gate]
-    H --> I
-    I --> J[Admin QR Scanner Validation]
-    J --> K[Mark Ticket as Scanned]
-```
-
 ## Getting Started
 
 ### Prerequisites
